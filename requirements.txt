@@ -1,0 +1,10 @@
+cython==0.29.21
+gdal==3.0.2
+h5py==2.10.0
+matplotlib==3.3.2
+numpy==1.19.1
+scikit-image==0.17.2
+scikit-learn==0.23.2
+scipy==1.5.2
+sqlite==3.33.0
+tqdm==4.50.2
