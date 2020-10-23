@@ -1,3 +1,5 @@
+# cython: language_level=3
+
 import numpy as np
 from ctypes import *
 import skimage.morphology as morph

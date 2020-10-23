@@ -12,7 +12,7 @@ import preprocess as pp
 from segment import segment_image
 from classify import classify_image
 from lib import utils
-import gdal
+from osgeo import gdal
 
 
 def main():

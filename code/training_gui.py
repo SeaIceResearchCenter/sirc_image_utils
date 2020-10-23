@@ -19,7 +19,7 @@ import h5py
 import os
 import argparse
 from ctypes import *
-import gdal
+from osgeo import gdal
 from sklearn.ensemble import RandomForestClassifier
 from select import select
 import sys
