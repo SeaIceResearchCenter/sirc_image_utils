@@ -59,12 +59,12 @@ def classify_block(image_block, watershed_block, image_type, image_date, rfc, wb
         watershed_block -= np.amin(watershed_block)
     ## Calculate the features of each segment within the block. This 
     #   calculation is unique for each image type. 
-    if image_type == 'wv02_ms':
+    if image_type == '8band':
         input_feature_matrix = attr_calc.analyze_ms_image(image_block, watershed_block,
                                                           wb_ref, bp_ref)
-    elif image_type == 'srgb':
+    elif image_type == '3band':
         input_feature_matrix = attr_calc.analyze_srgb_image(image_block,watershed_block)
-    elif image_type == 'pan':
+    elif image_type == '1band':
         input_feature_matrix = attr_calc.analyze_pan_image(
                                 image_block, watershed_block, image_date)
 

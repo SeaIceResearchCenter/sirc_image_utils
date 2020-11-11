@@ -3,6 +3,7 @@
 # Nicholas Wright
 
 import os
+import warnings
 import time
 import argparse
 import csv
@@ -21,8 +22,6 @@ def main():
     parser.add_argument("input_dir",
                         help='''directory path containing date directories of 
                         images to be processed''')
-    parser.add_argument("image_type", type=str, choices=["srgb", "wv02_ms", "pan"],
-                        help="image type: 'srgb', 'wv02_ms', 'pan'")
     parser.add_argument("training_dataset",
                         help="training data file")
     parser.add_argument("--training_label", type=str, default=None,
@@ -33,7 +32,7 @@ def main():
                         help="display text information and progress")
     parser.add_argument("-c", "--stretch",
                         type=str,
-                        choices=["hist", "pansh", "none"],
+                        choices=["hist", "pansh", "toa_corr", "none"],
                         default='hist',
                         help='''Apply image correction/stretch to input: \n
                                hist: Histogram stretch \n
@@ -43,6 +42,9 @@ def main():
                         help="Path for the pansharpening script if needed")
     parser.add_argument("-t", "--threads", type=int, default=1,
                         help="Number of subprocesses to start")
+    parser.add_argument("--oib", action="store_true",
+                        help="Special actions to take for OIB imagery. This will apply a white balance correction"
+                             "and compute the quality score of the image.")
 
     # Parse Arguments
     args = parser.parse_args()
@@ -56,22 +58,18 @@ def main():
         src_dir, src_file = os.path.split(user_input)
     else:
         raise IOError('Invalid input')
-    # Image type, choices are 'srgb', 'pan', or 'wv02_ms'
-    image_type = args.image_type
     # File with the training data
     tds_file = args.training_dataset
     # Default tds label is the image type
-    if args.training_label is None:
-        tds_label = image_type
-    else:
-        tds_label = args.training_label
+    #    (if not provided this gets set when the number of bands is determined)
+    tds_label = args.training_label
     # Default output directory
     #   (if not provided this gets set when the tasks are created)
     dst_dir = args.output_dir
     threads = args.threads
     verbose = args.verbose
     stretch = args.stretch
-
+    is_oib = args.oib
 
     # Use the given pansh script path, otherwise search for the correct folder
     #   in the same directory as this script.
@@ -83,7 +81,7 @@ def main():
 
     # For Ames OIB Processing:
     # White balance flag (To add as user option in future, presently only used on oib imagery)
-    if image_type == 'srgb':
+    if is_oib:
         assess_quality = True
         white_balance = True
     else:
@@ -95,7 +93,7 @@ def main():
     # Prepare a list of images to be processed based on the user input
     #   list of task objects based on the files in the input directory.
     #   Each task is an image to process, and has a subtask for each split
-    #   of that image. 
+    #   of that image.
     task_list = utils.create_task_list(os.path.join(src_dir, src_file), dst_dir)
 
     for task in task_list:
@@ -130,6 +128,17 @@ def main():
             task.set_src_dir(task.get_dst_dir())
             task.change_id(pansh_filepath)
 
+        # Convert DN to TOA if needed (primarily used for Planet analytic products)
+        if stretch == 'toa_corr':
+            # Check that there isn't already a calibrated version
+            image_name_noext = os.path.splitext(src_file)[0]
+            dst_filename = os.path.join(src_dir, image_name_noext + '_calib.tif')
+            if not os.path.isfile(dst_filename):
+                new_fname = pp.apply_calibration(task.get_src_dir(), task.get_id(), None, None)
+            else:
+                new_fname = dst_filename
+            task.change_id(new_fname)
+
         # Open the image dataset with gdal
         full_image_name = os.path.join(task.get_src_dir(), task.get_id())
         if os.path.isfile(full_image_name):
@@ -140,13 +149,23 @@ def main():
             print("File not found: {}".format(full_image_name))
             continue
 
+        image_type = "{}band".format(src_ds.RasterCount)
+        assert (image_type in utils.supported_formats),\
+               "Image format given: {} | Supported formats are: {}".format(image_type, utils.supported_formats)
+
         # Read metadata to get image date and keep only the metadata we need
         metadata = src_ds.GetMetadata()
-        image_date = pp.parse_metadata(metadata, image_type)
+        image_date, default = pp.parse_metadata(metadata)
+        if default is True:
+            warnings.warn("Date not found. Using default June 1st.", UserWarning)
+
+        if tds_label is None:
+            tds_label = image_type
+
         metadata = [image_type, image_date]
 
         # For processing icebridge imagery:
-        if image_type == 'srgb':
+        if is_oib:
             if image_date <= 150:
                 tds_label = 'spring'
                 white_balance = True
@@ -154,8 +173,8 @@ def main():
                 tds_label = 'summer'
 
         # Load Training Data
-        tds = utils.load_tds(tds_file, tds_label, image_type)
-        # tds = utils.load_tds(tds_file, 'srgb', image_type)
+        # tds = utils.load_tds(tds_file, tds_label, image_type)
+        tds = utils.load_tds(tds_file, 'summer', 'srgb')
 
         if verbose:
             print("Size of training set: {}".format(len(tds[1])))
@@ -166,9 +185,12 @@ def main():
         desired_block_size = 6400
 
         src_dtype = gdal.GetDataTypeSize(src_ds.GetRasterBand(1).DataType)
+        src_dtype_name = gdal.GetDataTypeName(src_ds.GetRasterBand(1).DataType)
         # Analyze input image histogram (if applying correction)
-        if stretch == 'hist':
+        if stretch == 'hist' or stretch == 'toa_corr':
+            print(src_dtype)
             stretch_params = pp.histogram_threshold(src_ds, src_dtype)
+            print(stretch_params)
         else:  # stretch == 'none':
             # WV Images are actually 11bit stored in 16bit files
             if src_dtype > 12:
@@ -179,27 +201,16 @@ def main():
 
         # Create a blank output image dataset
         # Save the classified image output as a geotiff
-        fileformat = "GTiff"
         image_name_noext = os.path.splitext(task.get_id())[0]
         dst_filename = os.path.join(task.get_dst_dir(), image_name_noext + '_classified.tif')
-        driver = gdal.GetDriverByName(fileformat)
-        dst_ds = driver.Create(dst_filename, xsize=x_dim, ysize=y_dim,
-                               bands=1, eType=gdal.GDT_Byte, options=["TILED=YES", "COMPRESS=LZW"])
-
-        # Transfer the metadata from input image
-        # dst_ds.SetMetadata(src_ds.GetMetadata())
-        # Transfer the input projection and geotransform if they are different than the default
-        if src_ds.GetGeoTransform() != (0, 1, 0, 0, 0, 1):
-            dst_ds.SetGeoTransform(src_ds.GetGeoTransform())  # sets same geotransform as input
-        if src_ds.GetProjection() != '':
-            dst_ds.SetProjection(src_ds.GetProjection())  # sets same projection as input
+        dst_ds = utils.blank_ds_from_source(src_ds, dst_filename)
 
         # Find the appropriate image block read size
         block_size_x, block_size_y = utils.find_blocksize(x_dim, y_dim, desired_block_size)
         if verbose:
             print("block size: [{},{}]".format(block_size_x, block_size_y))
 
-        # close the source dataset so that it can be loaded by each thread seperately
+        # close the source dataset so that it can be loaded by each thread separately
         src_ds = None
         lock = RLock()
         block_queue, qsize = construct_block_queue(block_size_x, block_size_y, x_dim, y_dim)
@@ -307,7 +318,8 @@ def construct_block_queue(block_size_x, block_size_y, x_dim, y_dim):
 def process_block_queue(lock, block_queue, dst_queue, full_image_name,
                         assess_quality, stretch_params, white_balance, tds, im_metadata):
     '''
-    Function run by each process. Will process blocks placed in the block_queue until the 'STOP' command is reached.
+    Function run by each process.
+    Will process blocks placed in the block_queue until the 'STOP' command is reached.
     '''
     # Parse input arguments
     lower, upper, wb_reference, bp_reference = stretch_params

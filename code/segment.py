@@ -31,47 +31,47 @@ def segment_image(input_data, image_type=False):
     # These values are dependent on the type of imagery being processed, and are
     #   mostly empirically derived.
     # band_list contains the three bands to be used for segmentation
-    if image_type == 'pan':
+    if image_type == '1band':
         high_threshold = 0.15 * 255   ## Needs to be checked
         low_threshold = 0.05 * 255     ## Needs to be checked
         gauss_sigma = 1
         feature_separation = 1
         band_list = [0, 0, 0]
-    elif image_type == 'wv02_ms':
+    elif image_type == '8band':
         high_threshold = 0.20 * 255    ## Needs to be checked
         low_threshold = 0.05 * 255      ## Needs to be checked
         gauss_sigma = 1.5
         feature_separation = 3
         band_list = [4, 2, 1]
-    else:   #image_type == 'srgb'
+    else:   #image_type == '3band'
         high_threshold = 0.15 * 255
         low_threshold = 0.05 * 255
         gauss_sigma = 2
         feature_separation = 5
-        band_list = [0, 1, 2]
+        band_list = [2, 1, 0]
 
     segmented_data = watershed_transformation(input_data, band_list, low_threshold, high_threshold,
-                                              gauss_sigma,feature_separation)
+                                              gauss_sigma, feature_separation)
 
     # Method that provides the user an option to view the original image
     #  side by side with the segmented image.
     # print(np.amax(segmented_data))
-    # image_data = np.array([input_data[band_list[0]],
-    #                        input_data[band_list[1]],
-    #                        input_data[band_list[2]]],
-    #                       dtype=np.uint8)
-    # ws_bound = segmentation.find_boundaries(segmented_data)
-    # ws_display = utils.create_composite(image_data)
-    #
-    # # save_name = '/Users/nicholas/Desktop/original_{}.png'
-    # # mimg.imsave(save_name.format(np.random.randint(0,100)), ws_display, format='png')
-    #
-    # ws_display[:, :, 0][ws_bound] = 240
-    # ws_display[:, :, 1][ws_bound] = 80
-    # ws_display[:, :, 2][ws_bound] = 80
-    #
-    # save_name = '/Users/nicholas/Desktop/seg_{}.png'
-    # mimg.imsave(save_name.format(np.random.randint(0, 100)), ws_display, format='png')
+    image_data = np.array([input_data[band_list[0]],
+                           input_data[band_list[1]],
+                           input_data[band_list[2]]],
+                          dtype=np.uint8)
+    ws_bound = segmentation.find_boundaries(segmented_data)
+    ws_display = utils.create_composite(image_data)
+
+    save_name = '/mnt/bamboo/OSSP_Tests/Debugging/original_{}.png'
+    mimg.imsave(save_name.format(np.random.randint(0, 100)), ws_display, format='png')
+
+    ws_display[:, :, 0][ws_bound] = 240
+    ws_display[:, :, 1][ws_bound] = 80
+    ws_display[:, :, 2][ws_bound] = 80
+
+    save_name = '/mnt/bamboo/OSSP_Tests/Debugging/seg_{}.png'
+    mimg.imsave(save_name.format(np.random.randint(0, 100)), ws_display, format='png')
 
     return segmented_data
 

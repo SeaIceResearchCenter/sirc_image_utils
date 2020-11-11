@@ -106,7 +106,7 @@ def calc_q_score(image):
     return qa_score
 
 
-def parse_metadata(metadata, image_type):
+def parse_metadata(metadata):
     """
     Parse image metadata information to find date.
     If image date cannot be found, return mean date of melt season (June1).
@@ -115,30 +115,39 @@ def parse_metadata(metadata, image_type):
         If 0 were to be used, then the decision tree would see that as very early
         season, since date is a numeric feature, and not a categorical one.
     """
+    # Use june 1 as the default date if metadata read is unsuccessful
+    default = True
+    yyyy = 2014
+    mm = 6
+    dd = 1
+
     try:
-        if image_type == 'srgb':
-            header_date = metadata['EXIF_DateTime']
-            image_date = header_date[5:7] + header_date[8:10]
-            yyyy = 2014
-            mm = image_date[:2]
-            dd = image_date[2:]
-        elif image_type == 'pan' or image_type == 'wv02_ms':
-            # image_date = metadata['NITF_STDIDC_ACQUISITION_DATE'][4:8]
-            image_date = metadata['NITF_IDATIM'][0:8]
-            yyyy = image_date[0:4]
-            mm = image_date[4:6]
-            dd = image_date[6:]
+        header_date = metadata['EXIF_DateTime']
     except KeyError:
-        # Use June 1 as default date
+        pass
+    else:
+        image_date = header_date[5:7] + header_date[8:10]
         yyyy = 2014
-        mm = 6
-        dd = 1
+        mm = image_date[:2]
+        dd = image_date[2:]
+        default = False
+
+    try:
+        # image_date = metadata['NITF_STDIDC_ACQUISITION_DATE'][4:8]
+        image_date = metadata['NITF_IDATIM'][0:8]
+    except KeyError:
+        pass
+    else:
+        yyyy = image_date[0:4]
+        mm = image_date[4:6]
+        dd = image_date[6:]
+        default = False
 
     # Convert the date to julian day format (number of days since Jan 1)
     d = datetime.date(int(yyyy), int(mm), int(dd))
     doy = d.toordinal() - datetime.date(d.year, 1, 1).toordinal() + 1
 
-    return doy
+    return doy, default
 
 
 def histogram_threshold(gdal_dataset, src_dtype):
@@ -184,6 +193,7 @@ def histogram_threshold(gdal_dataset, src_dtype):
 
         # Find the strongest (3) peaks in the band histogram
         peaks = find_peaks(hist, bin_centers)
+        peaks = trim_peaks(hist, bin_centers, peaks)
         # Tally the total number of peaks found across all bands
         total_peaks += len(peaks)
         # Find the high and low threshold for rescaling image intensity
@@ -209,13 +219,12 @@ def histogram_threshold(gdal_dataset, src_dtype):
     return lower, upper, wb_reference, bp_reference
 
 
-def find_peaks(hist, bin_centers):
+def find_peaks(hist, bin_centers, width=5):
     """
-    Finds the three strongest peaks in a given band.
-    Criteria for each peak:
-        Distance to the nearest neighboring peak is greater than one third the approx. dynamic range of the input image
-        Has a minimum number of pixels in that peak, loosely based on image size
-        Is greater than the directly adjacent bins, and the bins +/- 5 away
+    Finds peaks in histogram.
+    :param hist: Nx1 array of histogram counts
+    :param bin_centers: Nx1 array of the value for each bin
+    :param width: acceptable width of a peak, in units of bins
     """
 
     # Roughly define the smallest acceptable size of a peak based on the number of pixels
@@ -227,32 +236,42 @@ def find_peaks(hist, bin_centers):
     peaks = []
 
     # Check the lowest histogram bin
-    if hist[0] >= hist[1] and hist[0] >= hist[5]:
-        if hist[-1] > min_count:
-            peaks.append(bin_centers[0])
+    # if hist[0] >= hist[1] and hist[0] >= hist[5]:
+    #     if hist[-1] > min_count:
+    #         peaks.append(bin_centers[0])
 
+    # Minimum width of peak in # bins
+    kernel = [n for n in range(-1*width, 0)] + [n for n in range(1, width+1)]
     # Check the middle bins
-    for i in range(1, len(bin_centers) - 1):
-        # Acceptable width of peak is +/-5, except in edge cases
-        if i < 5:
-            w_l = i
-            w_u = 5
-        elif i > len(bin_centers) - 6:
-            w_l = 5
-            w_u = len(bin_centers) - 1 - i
-        else:
-            w_l = 5
-            w_u = 5
-        # Check neighboring peaks
-        if (hist[i] >= hist[i + 1] and hist[i] >= hist[i - 1]
-                and hist[i] >= hist[i - w_l] and hist[i] >= hist[i + w_u]):
-            if hist[i] > min_count:
-                peaks.append(bin_centers[i])
-    # Check the highest histogram bin
-    if hist[-1] >= hist[-2] and hist[-1] >= hist[-6]:
-        if hist[-1] > min_count:
-            peaks.append(bin_centers[-1])
+    for i in range(len(bin_centers)):
+        # Skip empty bins or those with too few counts
+        if hist[i] < min_count:
+            continue
 
+        # Compare the current bin to those within the kernel
+        is_peak = True
+        for k in kernel:
+            w = i + k
+            if w < 0 or w > len(bin_centers)-1:
+                continue
+            if hist[i] <= hist[w]:
+                is_peak = False
+                break
+
+        if is_peak:
+            peaks.append(bin_centers[i])
+
+    return peaks
+
+
+def trim_peaks(hist, bin_centers, peaks):
+    """
+    Trims list of detected peaks to only the strongest 3
+        Criteria for each peak:
+        Distance to the nearest neighboring peak is greater than one third the approx. dynamic range of the input image
+        Has a minimum number of pixels in that peak, loosely based on image size
+        Is greater than the directly adjacent bins, and the bins +/- 5 away
+    """
     num_peaks = len(peaks)
     distance = 5  # Initial distance threshold
     # One third the 'dynamic range' (radius from peak)
@@ -287,6 +306,7 @@ def find_peaks(hist, bin_centers):
         # Recalculate the number of peaks left, and increase the distance threshold
         num_peaks = len(peaks)
         distance += 5
+
     return peaks
 
 

@@ -9,9 +9,11 @@ import matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.colors as colors
 import matplotlib.image as mimg
+from osgeo import gdal
 from ctypes import *
 
-valid_extensions = ['.tif','.tiff','.jpg']
+valid_extensions = ['.tif', '.tiff', '.jpg']
+supported_formats = ['1band', '3band', '8band']
 
 class Task:
 
@@ -156,7 +158,7 @@ def load_tds(file_name, list_name, image_type):
             training_feature_matrix.pop(i)
 
     # Combine the label vector and training feature matrix into one variable. 
-    tds = [label_vector,training_feature_matrix]
+    tds = [label_vector, training_feature_matrix]
 
     return tds
 
@@ -364,6 +366,43 @@ def compile_subimages(subimage_list, num_x_subimages, num_y_subimages, bands=1):
                 counter += 1
 
     return compiled_image
+
+
+def blank_ds_from_source(src_ds, dst_filename, dst_dtype=gdal.GDT_Byte, copy_bands=False):
+    """
+    Copies the image parameters from the src_ds to a new file at dst_filename
+    Optional arguements to alter the dst data type and number of bands
+
+    :param src_ds: gdal dataset whose structure will be copied
+    :param dst_filename: filename of new dataset
+    :param dst_dtype: datatype of new dataset
+    :param copy_bands: whether to create a dataset with 1 band (False) or nbands in src_ds (True)
+    :return: dst_ds: new gdal dataset
+    """
+
+    x_dim = src_ds.RasterXSize
+    y_dim = src_ds.RasterYSize
+    if copy_bands:
+        n_bands = src_ds.RasterCount
+    else:
+        n_bands = 1
+
+    # Create a blank output image dataset
+    fileformat = "GTiff"
+    driver = gdal.GetDriverByName(fileformat)
+    dst_ds = driver.Create(dst_filename, xsize=x_dim, ysize=y_dim,
+                           bands=n_bands, eType=dst_dtype, options=["TILED=YES", "COMPRESS=LZW"])
+
+    # Transfer the metadata from input image
+    dst_ds.SetMetadata(src_ds.GetMetadata())
+    # Transfer the input projection and geotransform if they are different than the default
+    if src_ds.GetGeoTransform() != (0, 1, 0, 0, 0, 1):
+        dst_ds.SetGeoTransform(src_ds.GetGeoTransform())  # sets same geotransform as input
+    if src_ds.GetProjection() != '':
+        dst_ds.SetProjection(src_ds.GetProjection())  # sets same projection as input
+
+    return dst_ds
+
 
 #### Saves an image with custom colormap
 def save_color(image, save_name, custom_colormap=False):
