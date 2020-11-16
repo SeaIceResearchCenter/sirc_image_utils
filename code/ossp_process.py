@@ -173,8 +173,7 @@ def main():
                 tds_label = 'summer'
 
         # Load Training Data
-        # tds = utils.load_tds(tds_file, tds_label, image_type)
-        tds = utils.load_tds(tds_file, 'summer', 'srgb')
+        tds = utils.load_tds(tds_file, tds_label, image_type)
 
         if verbose:
             print("Size of training set: {}".format(len(tds[1])))

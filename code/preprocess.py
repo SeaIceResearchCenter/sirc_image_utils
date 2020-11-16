@@ -193,12 +193,14 @@ def histogram_threshold(gdal_dataset, src_dtype):
 
         # Find the strongest (3) peaks in the band histogram
         peaks = find_peaks(hist, bin_centers)
+        print(peaks)
         peaks = trim_peaks(hist, bin_centers, peaks)
+        print(peaks)
         # Tally the total number of peaks found across all bands
         total_peaks += len(peaks)
         # Find the high and low threshold for rescaling image intensity
         lower_b, upper_b, auto_wb, auto_bpr = find_threshold(hist, bin_centers,
-                                                            peaks, src_dtype)
+                                                             peaks, src_dtype)
         wb_reference[b-1] = auto_wb
         bp_reference[b-1] = auto_bpr
         # For sRGB we want to scale each band by the min and max of all
@@ -219,7 +221,7 @@ def histogram_threshold(gdal_dataset, src_dtype):
     return lower, upper, wb_reference, bp_reference
 
 
-def find_peaks(hist, bin_centers, width=5):
+def find_peaks(hist, bin_centers, width=None):
     """
     Finds peaks in histogram.
     :param hist: Nx1 array of histogram counts
@@ -229,8 +231,11 @@ def find_peaks(hist, bin_centers, width=5):
 
     # Roughly define the smallest acceptable size of a peak based on the number of pixels
     # in the largest bin.
-    # min_count = int(max(hist)*.06)
-    min_count = int(np.sum(hist)*.004)
+    min_count = int(np.median(hist) * 0.2)
+    # min_count = int(np.sum(hist)*.004)
+
+    if width is None:
+        width = len(bin_centers)*.02
 
     # First find all potential peaks in the histogram
     peaks = []

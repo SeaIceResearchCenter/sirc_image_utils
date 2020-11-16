@@ -372,7 +372,7 @@ class DataManager:
 
         # Read the image date from the metadata
         metadata = src_ds.GetMetadata()
-        self.im_date = pp.parse_metadata(metadata, self.im_type)
+        self.im_date = pp.parse_metadata(metadata)
 
         # Determine the datatype
         src_dtype = gdal.GetDataTypeSize(src_ds.GetRasterBand(1).DataType)
@@ -381,7 +381,7 @@ class DataManager:
         lower, upper, wb_ref, br_ref = pp.histogram_threshold(src_ds, src_dtype)
         self.wb_ref = np.array(wb_ref, dtype=c_uint8)
         self.br_ref = np.array(br_ref, dtype=c_uint8)
-
+        print(lower, upper, wb_ref, br_ref)
         # Load the image data
         image_data = src_ds.ReadAsArray()
 
@@ -392,7 +392,7 @@ class DataManager:
         image_data = pp.rescale_band(image_data, lower, upper)
 
         # Apply a white balance to the image
-        image_data = pp.white_balance(image_data, self.wb_ref.astype(np.float), float(np.amax(self.wb_ref)))
+        # image_data = pp.white_balance(image_data, self.wb_ref.astype(np.float), float(np.amax(self.wb_ref)))
 
         # Convert the input data to c_uint8
         self.original_image = np.ndarray.astype(image_data, c_uint8)
