@@ -275,7 +275,7 @@ def write_to_database(db_name, path, image_id, part, pixel_counts):
     # Close the database
     conn.close()
 
-#### Recombine classified image splits
+
 def stitch(image_files, save_path=None):
     '''
     INPUT:
@@ -284,6 +284,7 @@ def stitch(image_files, save_path=None):
         full_classification: full image stitched back together
 
     NOTES:
+        Recombine classified image splits
         Currently only implemented to recombine classified images, but the
         method could work with any image data.
         There are two levels of recombination. Recompiling the subimages (see
@@ -368,15 +369,18 @@ def compile_subimages(subimage_list, num_x_subimages, num_y_subimages, bands=1):
     return compiled_image
 
 
-def blank_ds_from_source(src_ds, dst_filename, dst_dtype=gdal.GDT_Byte, copy_bands=False):
+def blank_ds_from_source(src_ds, dst_filename, dst_dtype=gdal.GDT_Byte, copy_bands=False,
+                         return_dataset=True):
     """
     Copies the image parameters from the src_ds to a new file at dst_filename
-    Optional arguements to alter the dst data type and number of bands
+    Optional arguments to alter the dst data type and number of bands
 
     :param src_ds: gdal dataset whose structure will be copied
     :param dst_filename: filename of new dataset
     :param dst_dtype: datatype of new dataset
     :param copy_bands: whether to create a dataset with 1 band (False) or nbands in src_ds (True)
+    :param return_dataset: whether to return the open gdal dataset (True)
+                           or write to disk and return the filename (False)
     :return: dst_ds: new gdal dataset
     """
 
@@ -401,7 +405,12 @@ def blank_ds_from_source(src_ds, dst_filename, dst_dtype=gdal.GDT_Byte, copy_ban
     if src_ds.GetProjection() != '':
         dst_ds.SetProjection(src_ds.GetProjection())  # sets same projection as input
 
-    return dst_ds
+    # Either returns the gdal dataset or closes the dataset and returns the filename
+    if return_dataset:
+        return dst_ds
+    else:
+        dst_ds = None
+        return dst_filename
 
 
 #### Saves an image with custom colormap
@@ -442,6 +451,7 @@ def save_color(image, save_name, custom_colormap=False):
 
     mimg.imsave(save_name, image, format='png', cmap=custom_colormap)
 
+
 #### Count the number of pixels in each classification category of given image
 def count_features(classified_image):
 
@@ -474,6 +484,7 @@ def get_image_paths(folder,keyword='.h5',strict=True):
                 if (keyword in f.lower()
                     and os.path.splitext(f)[0][0] != '.'))
 
+
 # Remove hidden folders and files from the given list of strings (mac)
 def remove_hidden(folder):
     i = 0
@@ -483,6 +494,7 @@ def remove_hidden(folder):
         else:
             i+=1
     return folder
+
 
 # Combines multiple bands (RBG) into one 3D array
 # Adapted from:  http://gis.stackexchange.com/questions/120951/merging-multiple-16-bit-image-bands-to-create-a-true-color-tiff
@@ -495,6 +507,50 @@ def create_composite(band_list, dtype=np.uint8):
         img[:,:,i] = band_list[i]
     
     return img
+
+
+def save_color_image(image_data, output_name, image_type, block_cols, block_rows):
+    """
+    Write a rgb color image (as png) of the raw image data to disk.
+    """
+    holder = []
+    # Find the appropriate bands to use for an rgb representation
+    if image_type == 'wv02_ms':
+        rgb = [5, 3, 2]
+    elif image_type == 'srgb':
+        rgb = [1, 2, 3]
+    else:
+        rgb = [1, 1, 1]
+
+    red_band = image_data[rgb[0]]
+    green_band = image_data[rgb[1]]
+    blue_band = image_data[rgb[2]]
+
+    for i in range(len(red_band)):
+        holder.append(utils.create_composite([
+            red_band[i], green_band[i], blue_band[i]]))
+
+    colorfullimg = utils.compile_subimages(holder, block_cols, block_rows, 3)
+    mimg.imsave(output_name, colorfullimg)
+    colorfullimg = None
+
+
+def downsample(band, factor):
+    """
+    'Downsample' an image by the given factor. Every pixel in the resulting image
+        is the result of an average of the NxN kernel centered at that pixel,
+        where N is factor.
+    """
+
+    band_downsample = block_reduce(band, block_size=(factor, factor, 3), func=np.mean)
+
+    band_copy = np.zeros(np.shape(band))
+    for i in range(np.shape(band_downsample)[0]):
+        for j in range(np.shape(band_downsample)[1]):
+            band_copy[i * factor:(i * factor) + factor, j * factor:j * factor + factor, :] = band_downsample[i, j, :]
+
+    return band_copy
+
 
 # Plots a confusion matrix. Adapted from 
 # http://scikit-learn.org/stable/auto_examples/model_selection/plot_confusion_matrix.html#sphx-glr-auto-examples-model-selection-plot-confusion-matrix-py

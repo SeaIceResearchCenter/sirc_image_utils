@@ -11,7 +11,7 @@ import subprocess
 import numpy as np
 import matplotlib.image as mimg
 from skimage.measure import block_reduce
-from lib import utils, rescale_intensity
+import rescale_intensity
 
 
 def rescale_band(band, bottom, top):
@@ -376,47 +376,3 @@ def find_threshold(hist, bin_centers, peaks, src_dtype, top=0.15, bottom=0.5):
             lower = min_range
 
     return lower, upper, auto_wb, auto_bpr
-
-
-def save_color_image(image_data, output_name, image_type, block_cols, block_rows):
-    """
-    Write a rgb color image (as png) of the raw image data to disk.
-    """
-    holder = []
-    # Find the appropriate bands to use for an rgb representation
-    if image_type == 'wv02_ms':
-        rgb = [5, 3, 2]
-    elif image_type == 'srgb':
-        rgb = [1, 2, 3]
-    else:
-        rgb = [1, 1, 1]
-
-    red_band = image_data[rgb[0]]
-    green_band = image_data[rgb[1]]
-    blue_band = image_data[rgb[2]]
-
-    for i in range(len(red_band)):
-        holder.append(utils.create_composite([
-            red_band[i], green_band[i], blue_band[i]]))
-
-    colorfullimg = utils.compile_subimages(holder, block_cols, block_rows, 3)
-    mimg.imsave(output_name, colorfullimg)
-    colorfullimg = None
-
-
-def downsample(band, factor):
-    """
-    'Downsample' an image by the given factor. Every pixel in the resulting image
-        is the result of an average of the NxN kernel centered at that pixel,
-        where N is factor.
-    """
-
-    band_downsample = block_reduce(band, block_size=(factor, factor, 3), func=np.mean)
-
-    band_copy = np.zeros(np.shape(band))
-    for i in range(np.shape(band_downsample)[0]):
-        for j in range(np.shape(band_downsample)[1]):
-            band_copy[i * factor:(i * factor) + factor, j * factor:j * factor + factor, :] = band_downsample[i, j, :]
-
-    return band_copy
-
