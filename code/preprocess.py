@@ -235,7 +235,7 @@ def find_peaks(hist, bin_centers, width=None):
     # min_count = int(np.sum(hist)*.004)
 
     if width is None:
-        width = len(bin_centers)*.02
+        width = int(len(bin_centers)*.02)
 
     # First find all potential peaks in the histogram
     peaks = []
