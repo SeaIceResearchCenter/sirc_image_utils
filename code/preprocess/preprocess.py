@@ -11,7 +11,8 @@ import subprocess
 import numpy as np
 import matplotlib.image as mimg
 from skimage.measure import block_reduce
-import rescale_intensity
+from skimage.exposure import cumulative_distribution
+from preprocess import rescale_intensity
 
 
 def rescale_band(band, bottom, top):
@@ -27,9 +28,11 @@ def rescale_band(band, bottom, top):
     return rescale_intensity.rescale_intensity(band, imin, imax, omin, omax)
 
 
-def white_balance(band, reference, omax):
-
-    return rescale_intensity.white_balance(band, reference, omax)
+def white_balance(image_data, reference, omax):
+    """
+    White balance given image. Image_data must have 3 bands.
+    """
+    return rescale_intensity.white_balance(image_data, reference, omax)
 
 
 def run_pgc_pansharpen(script_path, input_filepath, output_dir):
@@ -150,7 +153,11 @@ def parse_metadata(metadata):
     return doy, default
 
 
-def histogram_threshold(gdal_dataset, src_dtype):
+def histogram_threshold(src_ds, src_dtype, gdal_dataset=True, ignore_nir=False, top=0.15, bottom=0.5):
+    """
+    src_ds must either be an opened gdal dataset (gdal_dataset=True) or
+    a (N,Y,X) raster (gdal_dataset=False)
+    """
     # Set the percentile thresholds at a temporary value until finding the
     #   appropriate ones considering all bands. These numbers are chosen to
     #   always get reset on first loop (for bitdepth <= uint16)
@@ -158,7 +165,14 @@ def histogram_threshold(gdal_dataset, src_dtype):
     upper = -1
 
     # Determine the number of bands in the dataset
-    band_count = gdal_dataset.RasterCount
+    if gdal_dataset:
+        band_count = src_ds.RasterCount
+    else:
+        band_count = np.shape(src_ds)[0]
+
+    if ignore_nir:
+        band_count -= 1
+
     # White balance reference points
     wb_reference = [0 for _ in range(band_count)]
     bp_reference = [0 for _ in range(band_count)]
@@ -175,32 +189,19 @@ def histogram_threshold(gdal_dataset, src_dtype):
 
     # First for loop finds the threshold based on all bands
     for b in range(1, band_count + 1):
-
-        # Read the band information from the gdal dataset
-        band = gdal_dataset.GetRasterBand(b)
-
-        # Find the min and max image values
-        bmin, bmax = band.ComputeRasterMinMax()
-
-        # Determine the histogram using gdal
-        nbins = int(bmax - bmin)
-        hist = band.GetHistogram(bmin, bmax, nbins, approx_ok=0)
-        bin_centers = range(int(bmin), int(bmax))
-        bin_centers = np.array(bin_centers)
-
-        # Remove the image data from memory for now
-        band = None
-
+        hist, bin_centers = load_histogram(src_ds, b, gdal_dataset)
+        # print(len(hist))
+        # print(len(bin_centers))
         # Find the strongest (3) peaks in the band histogram
         peaks = find_peaks(hist, bin_centers)
-        print(peaks)
         peaks = trim_peaks(hist, bin_centers, peaks)
-        print(peaks)
+        # print(peaks)
         # Tally the total number of peaks found across all bands
         total_peaks += len(peaks)
         # Find the high and low threshold for rescaling image intensity
         lower_b, upper_b, auto_wb, auto_bpr = find_threshold(hist, bin_centers,
-                                                             peaks, src_dtype)
+                                                             peaks, src_dtype,
+                                                             top=top, bottom=bottom)
         wb_reference[b-1] = auto_wb
         bp_reference[b-1] = auto_bpr
         # For sRGB we want to scale each band by the min and max of all
@@ -221,6 +222,90 @@ def histogram_threshold(gdal_dataset, src_dtype):
     return lower, upper, wb_reference, bp_reference
 
 
+def cumulative_dist_thresh(src_ds, gdal_dataset=True, ignore_nir=False, min_count=0.01, max_count=0.99):
+
+    # Determine the number of bands in the dataset
+    if gdal_dataset:
+        band_count = src_ds.RasterCount
+    else:
+        band_count = np.shape(src_ds)[0]
+
+    if ignore_nir:
+        band_count -= 1
+
+    lower = [0 for _ in range(band_count)]
+    upper = [0 for _ in range(band_count)]
+    import matplotlib.pyplot as plt
+    for b in range(1, band_count + 1):
+        hist, bin_centers = load_histogram(src_ds, b, gdal_dataset)
+
+        cdf = np.cumsum(hist)
+        cdf = (cdf / np.amax(cdf))
+
+        # Set default values
+        lower_b = 0
+        upper_b = len(cdf)
+
+        lower_first = False
+        upper_first = False
+        for i in range(len(cdf)):
+            if cdf[i] > min_count and lower_first is False:
+                lower_b = bin_centers[i]
+                lower_first = True
+            if cdf[i] > max_count and upper_first is False:
+                upper_b = bin_centers[i]
+                upper_first = True
+
+        lower[b-1] = lower_b
+        upper[b-1] = upper_b
+        # print(lower_b, upper_b)
+        # plt.figure()
+        # plt.plot(bin_centers, cdf)
+        # plt.figure()
+        # plt.plot(bin_centers, hist)
+        # plt.show()
+
+    return lower, upper
+
+
+def load_histogram(src_ds, b, gdal_dataset):
+
+    if gdal_dataset:
+        # Read the band information from the gdal dataset
+        band = src_ds.GetRasterBand(b)
+
+        # Find the min and max image values
+        bmin, bmax = band.ComputeRasterMinMax()
+
+        # Determine the histogram using gdal
+        nbins = int(bmax - bmin + 1)
+        hist = band.GetHistogram(bmin, bmax, nbins, approx_ok=0)
+
+        # Remove the image data from memory for now
+        band = None
+
+    else:
+        # Read the current band from the image
+        band = src_ds[b - 1, :, :]
+
+        # Find the min and max image values
+        bmin = np.amin(band)
+        bmax = np.amax(band)
+
+        # Determine the histogram using numpy
+        nbins = int(bmax - bmin + 1)
+        hist, bin_edges = np.histogram(band, bins=nbins, range=(bmin, bmax))
+
+        # Remove the image data from memory for now
+        band = None
+
+    ####### This didnt have +1 when testing with gdal_dataset = False, need to retest that case
+    bin_centers = range(int(bmin), int(bmax)+1)
+    bin_centers = np.array(bin_centers)
+
+    return hist, bin_centers
+
+
 def find_peaks(hist, bin_centers, width=None):
     """
     Finds peaks in histogram.
@@ -231,11 +316,11 @@ def find_peaks(hist, bin_centers, width=None):
 
     # Roughly define the smallest acceptable size of a peak based on the number of pixels
     # in the largest bin.
-    min_count = int(np.median(hist) * 0.2)
+    min_count = int(np.mean(hist) * 0.02)
     # min_count = int(np.sum(hist)*.004)
 
     if width is None:
-        width = int(len(bin_centers)*.02)
+        width = int(len(bin_centers) * 0.02)
 
     # First find all potential peaks in the histogram
     peaks = []

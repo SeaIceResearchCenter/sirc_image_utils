@@ -13,10 +13,12 @@ def analyze_srgb_image(input_image, watershed_image, segment_id=False):
     Cacluate the attributes for each segment given in watershed_image
     using the raw pixel values in input image. Attributes calculated for
     srgb type images.
+    Band Assumptions: B1=Red, B2=Green, B3=Blue
     '''
     cdef int num_ws
     cdef int x_dim, y_dim, num_bands
     cdef int ws, b, i, sid
+    cdef float h, s, v
     cdef int ws_size
    
     # If no segment id is provided, analyze the features for every watershed
@@ -98,8 +100,16 @@ def analyze_srgb_image(input_image, watershed_image, segment_id=False):
         # histogram_e = np.bincount(external[1][ws])
         fm_view[ws, 14] = spstats.entropy(histogram_e, base=2)
 
-        # Date of image acquisition (removed, but need placeholder)
-        fm_view[ws, 15] = 0
+        # Swap raw band numbers for HSV values
+        #    Done at the end because the raw band numbers are used for band ratios above
+        h, s, v = rgb2hsv(fm_view[ws, 0], fm_view[ws, 1], fm_view[ws, 2])
+        fm_view[ws, 0] = h
+        fm_view[ws, 1] = s
+        fm_view[ws, 2] = v
+
+        # Used to be Date of image acquisition (removed, but need placeholder)
+        # Testing area/perim ration
+        fm_view[ws, 15] = internal[ws, 0, 0] / external[ws, 0, 0]
 
     return np.copy(fm_view)
 
@@ -293,7 +303,7 @@ def pixel_sort(const unsigned char[:,:,:] intensity_image_view,
         External: Array of length (number of labels), each element is a list
             of intensity values that are adjacent to that label number.
     '''
-    cdef int x, y, i, w, b
+    cdef int x, y, i, w, b, z
     cdef unsigned int sn
     cdef unsigned char new_val
     cdef float count, mean, M2
@@ -417,11 +427,11 @@ def pixel_sort_extended(const unsigned char[:,:,:] intensity_image_view,
     '''
     cdef int x, y, i, w, b
     cdef int h_count
-    cdef unsigned int sn
+    cdef unsigned int sn, sni
     cdef unsigned char new_val
     cdef float count, mean, M2
     cdef float delta, delta2
-    cdef char window[4]
+    cdef char window[2]
 
     # Output statistical variables.
     internal = np.zeros((num_ws, num_bands, 3), dtype=c_float)
@@ -436,7 +446,7 @@ def pixel_sort_extended(const unsigned char[:,:,:] intensity_image_view,
     cdef int[:, :] ex_ext_view = external_ext
 
     # Moving window that defines the neighboring region for each pixel
-    window = [-4, -3, 3, 4]
+    window = [-4, 4]
 
     for y in range(y_dim):
         for x in range(x_dim):
@@ -447,12 +457,16 @@ def pixel_sort_extended(const unsigned char[:,:,:] intensity_image_view,
             # Set the current segment number
             sn = label_image_view[x, y]
 
+            # Set the sn index to the sn
+            sni = sn
+
             # If a segment_id was given
             # Select only the ws with the correct label.
-            #    set sn to zero to index properly
+            #    In this case sni needs to be 0 to index properly,
+            #    But we still need sn to be real to check externals
             if segment_id != 0:
                 if segment_id == sn:
-                    sn = 0
+                    sni = 0
                 else:
                     continue
 
@@ -461,9 +475,9 @@ def pixel_sort_extended(const unsigned char[:,:,:] intensity_image_view,
                 # Find the new pixel
                 new_val = intensity_image_view[b, x, y]
                 # Read the previous values
-                count = in_view[sn, b, 0]
-                mean = in_view[sn, b, 1]
-                M2 = in_view[sn, b, 2]
+                count = in_view[sni, b, 0]
+                mean = in_view[sni, b, 1]
+                M2 = in_view[sni, b, 2]
 
                 # Update the stored values
                 count += 1
@@ -473,30 +487,31 @@ def pixel_sort_extended(const unsigned char[:,:,:] intensity_image_view,
                 M2 += delta * delta2
 
                 # Update the internal list
-                in_view[sn, b, 0] = count
-                in_view[sn, b, 1] = mean
-                in_view[sn, b, 2] = M2
+                in_view[sni, b, 0] = count
+                in_view[sni, b, 1] = mean
+                in_view[sni, b, 2] = M2
 
                 # Increment this pixel value in the b0 histogram
                 if b == 1:
-                    h_count = in_ext_view[sn, new_val]
+                    h_count = in_ext_view[sni, new_val]
                     h_count += 1
-                    in_ext_view[sn, new_val] = h_count
+                    in_ext_view[sni, new_val] = h_count
 
             # Determine the external values within the window
-            for w in range(4):
+            for w in range(2):
                 i = window[w]
                 # Determine the external values in the x-axis
                 # Check for edge conditions
                 if (x + i < 0) or (x + i >= x_dim):
                     continue
                 if label_image_view[x + i, y] != sn:
+                    z = label_image_view[x + i, y]
                     for b in range(num_bands):
                         new_val = intensity_image_view[b, x + i, y]
                         # Read the previous values
-                        count = ex_view[sn, b, 0]
-                        mean = ex_view[sn, b, 1]
-                        M2 = ex_view[sn, b, 2]
+                        count = ex_view[sni, b, 0]
+                        mean = ex_view[sni, b, 1]
+                        M2 = ex_view[sni, b, 2]
 
                         # Update the stored values
                         count += 1
@@ -506,15 +521,15 @@ def pixel_sort_extended(const unsigned char[:,:,:] intensity_image_view,
                         M2 += delta * delta2
 
                         # Update the internal list
-                        ex_view[sn, b, 0] = count
-                        ex_view[sn, b, 1] = mean
-                        ex_view[sn, b, 2] = M2
+                        ex_view[sni, b, 0] = count
+                        ex_view[sni, b, 1] = mean
+                        ex_view[sni, b, 2] = M2
 
                         # Increment this pixel value in the b0 histogram
                         if b == 1:
-                            h_count = ex_ext_view[sn, new_val]
+                            h_count = ex_ext_view[sni, new_val]
                             h_count += 1
-                            ex_ext_view[sn, new_val] = h_count
+                            ex_ext_view[sni, new_val] = h_count
 
                 # Determine the external values in the y-axis
                 # Check for edge conditions
@@ -524,9 +539,9 @@ def pixel_sort_extended(const unsigned char[:,:,:] intensity_image_view,
                     for b in range(num_bands):
                         new_val = intensity_image_view[b, x, y + i]
                         # Read the previous values
-                        count = ex_view[sn, b, 0]
-                        mean = ex_view[sn, b, 1]
-                        M2 = ex_view[sn, b, 2]
+                        count = ex_view[sni, b, 0]
+                        mean = ex_view[sni, b, 1]
+                        M2 = ex_view[sni, b, 2]
 
                         # Update the stored values
                         count += 1
@@ -536,15 +551,15 @@ def pixel_sort_extended(const unsigned char[:,:,:] intensity_image_view,
                         M2 += delta * delta2
 
                         # Update the internal list
-                        ex_view[sn, b, 0] = count
-                        ex_view[sn, b, 1] = mean
-                        ex_view[sn, b, 2] = M2
+                        ex_view[sni, b, 0] = count
+                        ex_view[sni, b, 1] = mean
+                        ex_view[sni, b, 2] = M2
 
                         # Increment this pixel value in the b0 histogram
                         if b == 1:
-                            h_count = ex_ext_view[sn, new_val]
+                            h_count = ex_ext_view[sni, new_val]
                             h_count += 1
-                            ex_ext_view[sn, new_val] = h_count
+                            ex_ext_view[sni, new_val] = h_count
 
     return internal, external, internal_ext, external_ext
 
@@ -556,6 +571,61 @@ cdef int last_index(int[:] lst):
             return i
 
     return 0
+
+
+def rgb2hsv(r, g, b):
+    #r = int(r)
+    #g = int(g)
+    #b = int(b)
+    return _rgb2hsv(r,g,b)
+
+
+cdef (float, float, float) _rgb2hsv(int r, int g, int b):
+    cdef int min, max
+    cdef float h, s, v, delta
+    min, max = _minmax([r, g, b])
+
+    v = max
+
+    delta = max - min
+    if max != 0:
+        s = delta / max
+    else:
+        s = 0
+        h = 1
+        return h, s, v
+
+    if delta <= 0:
+        s = 0
+        h = 1
+        return h, s, v
+
+    if r == max:
+        h = (g - b) / delta
+    elif g == max:
+        h = 2 + (b - r) / delta
+    else:
+        h = 4 + (r - g) / delta
+
+    h *= 60
+    if h < 0:
+        h += 360
+
+    return h, s, v
+
+
+# return type is a C struct of 2 values - this should be quick...
+cdef (int, int) _minmax(arr):
+    cdef int min = 255    # np.inf
+    cdef int max = 0      # -np.inf
+    cdef int i
+    for i in range(len(arr)):
+        if arr[i] < min:
+            min = arr[i]
+        if arr[i] > max:
+            max = arr[i]
+    return min, max
+
 
 # From wikipedia: Welfords algorithm
 # for a new value newValue, compute the new count, new mean, the new M2.

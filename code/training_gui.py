@@ -23,7 +23,7 @@ from osgeo import gdal
 from sklearn.ensemble import RandomForestClassifier
 from select import select
 import sys
-import preprocess as pp
+from preprocess import preprocess as pp
 from segment import segment_image
 from lib import utils
 from lib import attribute_calculations as attr_calc
@@ -384,12 +384,12 @@ class DataManager:
         print(lower, upper, wb_ref, br_ref)
         # Load the image data
         image_data = src_ds.ReadAsArray()
-
+        print(np.shape(image_data))
         # Close the GDAL dataset
         src_ds = None
 
         # Rescale the input dataset using a histogram stretch
-        image_data = pp.rescale_band(image_data, lower, upper)
+        # image_data = pp.rescale_band(image_data, lower, upper)
 
         # Apply a white balance to the image
         # image_data = pp.white_balance(image_data, self.wb_ref.astype(np.float), float(np.amax(self.wb_ref)))
@@ -499,6 +499,8 @@ class DataManager:
 
         # attribute_calculations returns a 2d array, but we only want the 1d list of features.
         feature_array = feature_array[0]
+        print(feature_array[0], feature_array[1], feature_array[2])
+        print(feature_array[15])
 
         return feature_array
 
@@ -816,7 +818,7 @@ class LivePredictor:
     def __init__(self, active_state):
         self.active_state = active_state
         self.is_trained = False
-        self.rfc = RandomForestClassifier(n_estimators=100)
+        self.rfc = RandomForestClassifier(n_estimators=100, oob_score=True)
 
     # True if LivePredictor is running, false otherwise
     def is_active(self):
@@ -825,6 +827,8 @@ class LivePredictor:
     def retrain_model(self, feature_matrix, label_vector):
         if len(label_vector) >= 10:
             self.rfc.fit(feature_matrix[:len(label_vector)], label_vector)
+            if self.rfc.oob_score:
+                print("OOB Score: {}".format(self.rfc.oob_score_))
             self.is_trained = True
 
     def print_prediction(self, feature_array):

@@ -9,7 +9,7 @@ import argparse
 import csv
 import numpy as np
 from multiprocessing import Process, RLock, Queue
-import preprocess as pp
+from preprocess import preprocess as pp
 from segment import segment_image
 from classify import classify_image
 from lib import utils
@@ -173,7 +173,8 @@ def main():
                 tds_label = 'summer'
 
         # Load Training Data
-        tds = utils.load_tds(tds_file, tds_label, image_type)
+        # tds = utils.load_tds(tds_file, tds_label, image_type)
+        tds = utils.load_tds(tds_file, 'srgb', 'srgb')
 
         if verbose:
             print("Size of training set: {}".format(len(tds[1])))
@@ -181,7 +182,7 @@ def main():
         # Set necessary parameters for reading image 1 block at a time
         x_dim = src_ds.RasterXSize
         y_dim = src_ds.RasterYSize
-        desired_block_size = 6400
+        desired_block_size = 1600
 
         src_dtype = gdal.GetDataTypeSize(src_ds.GetRasterBand(1).DataType)
         src_dtype_name = gdal.GetDataTypeName(src_ds.GetRasterBand(1).DataType)
@@ -194,6 +195,8 @@ def main():
             # WV Images are actually 11bit stored in 16bit files
             if src_dtype > 12:
                 src_dtype = 11
+            # TEMP:
+            src_dtype = 8
             stretch_params = [1, 2**src_dtype - 1,
                               [2 ** src_dtype - 1 for _ in range(src_ds.RasterCount)],
                               [1 for _ in range(src_ds.RasterCount)]]

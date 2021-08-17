@@ -151,11 +151,11 @@ def load_tds(file_name, list_name, image_type):
         label_vector.pop(i)
         training_feature_matrix.pop(i)
 
-    if list_name != 'spring' and image_type != 'wv02_ms':
-        while 5 in label_vector:
-            i = label_vector.index(5)
-            label_vector.pop(i)
-            training_feature_matrix.pop(i)
+    # if list_name != 'spring' and image_type != 'wv02_ms':
+    #     while 5 in label_vector:
+    #         i = label_vector.index(5)
+    #         label_vector.pop(i)
+    #         training_feature_matrix.pop(i)
 
     # Combine the label vector and training feature matrix into one variable. 
     tds = [label_vector, training_feature_matrix]
@@ -235,6 +235,7 @@ def write_to_csv(csv_name, path, image_name, pixel_counts):
     except:
         print("error saving csv")
         print(pixel_counts)
+
 
 def write_to_database(db_name, path, image_id, part, pixel_counts):
     '''
@@ -369,8 +370,8 @@ def compile_subimages(subimage_list, num_x_subimages, num_y_subimages, bands=1):
     return compiled_image
 
 
-def blank_ds_from_source(src_ds, dst_filename, dst_dtype=gdal.GDT_Byte, copy_bands=False,
-                         return_dataset=True):
+def blank_ds_from_source(src_ds, dst_filename, dst_dtype=gdal.GDT_Byte, copy_bands=False, rgb_only=False,
+                         return_ds=True):
     """
     Copies the image parameters from the src_ds to a new file at dst_filename
     Optional arguments to alter the dst data type and number of bands
@@ -379,7 +380,8 @@ def blank_ds_from_source(src_ds, dst_filename, dst_dtype=gdal.GDT_Byte, copy_ban
     :param dst_filename: filename of new dataset
     :param dst_dtype: datatype of new dataset
     :param copy_bands: whether to create a dataset with 1 band (False) or nbands in src_ds (True)
-    :param return_dataset: whether to return the open gdal dataset (True)
+    :param rgb_only: returns an output dataset with 3 bands, regardless of input
+    :param return_ds: whether to return the open gdal dataset (True)
                            or write to disk and return the filename (False)
     :return: dst_ds: new gdal dataset
     """
@@ -387,7 +389,10 @@ def blank_ds_from_source(src_ds, dst_filename, dst_dtype=gdal.GDT_Byte, copy_ban
     x_dim = src_ds.RasterXSize
     y_dim = src_ds.RasterYSize
     if copy_bands:
-        n_bands = src_ds.RasterCount
+        if rgb_only:
+            n_bands = 3
+        else:
+            n_bands = src_ds.RasterCount
     else:
         n_bands = 1
 
@@ -406,7 +411,7 @@ def blank_ds_from_source(src_ds, dst_filename, dst_dtype=gdal.GDT_Byte, copy_ban
         dst_ds.SetProjection(src_ds.GetProjection())  # sets same projection as input
 
     # Either returns the gdal dataset or closes the dataset and returns the filename
-    if return_dataset:
+    if return_ds:
         return dst_ds
     else:
         dst_ds = None
@@ -504,9 +509,29 @@ def create_composite(band_list, dtype=np.uint8):
     num_bands = len(band_list)
     img = np.zeros((img_dim[0], img_dim[1], num_bands), dtype=dtype)
     for i in range(num_bands):
-        img[:,:,i] = band_list[i]
+        img[:, :, i] = band_list[i]
     
     return img
+
+
+def reshape_yxb2bxy(img_data, dtype=np.uint8):
+    y, x, bands = np.shape(img_data)
+
+    new_img = np.zeros((bands, y, x), dtype=dtype)
+    for b in range(bands):
+        new_img[b, :, :] = img_data[:, :, b]
+
+    return new_img
+
+
+def reshape_bxy2yxb(img_data, dtype=np.uint8):
+    bands, x, y = np.shape(img_data)
+
+    new_img = np.zeros((x, y, bands), dtype=dtype)
+    for b in range(bands):
+        new_img[:, :, b] = img_data[b, :, :]
+
+    return new_img
 
 
 def save_color_image(image_data, output_name, image_type, block_cols, block_rows):
