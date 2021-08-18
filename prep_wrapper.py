@@ -9,7 +9,7 @@ from skimage import exposure
 from skimage import color
 
 from lib import utils
-from sirc_image_utils import preprocess as pp
+import preprocess as pp
 
 import matplotlib
 import matplotlib.pyplot as plt
