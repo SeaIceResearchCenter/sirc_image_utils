@@ -12,7 +12,7 @@ import numpy as np
 import matplotlib.image as mimg
 from skimage.measure import block_reduce
 from skimage.exposure import cumulative_distribution
-from preprocess import rescale_intensity
+from lib import rescale_intensity
 
 
 def rescale_band(band, bottom, top):
