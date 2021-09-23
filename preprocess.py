@@ -8,11 +8,15 @@
 import os
 import datetime
 import subprocess
+import warnings
 import numpy as np
 import matplotlib.image as mimg
 from skimage.measure import block_reduce
 from skimage.exposure import cumulative_distribution
-from sirc_image_utils.lib import rescale_intensity
+try:
+    from sirc_image_utils.lib import rescale_intensity
+except ModuleNotFoundError:
+    from lib import rescale_intensity
 
 
 def rescale_band(band, bottom, top):
@@ -223,7 +227,7 @@ def histogram_threshold(src_ds, src_dtype, gdal_dataset=True, ignore_nir=False, 
 
 
 def cumulative_dist_thresh(src_ds, gdal_dataset=True, ignore_nir=False, min_count=0.01, max_count=0.99):
-
+    warnings.warn("Module moved to histogram", DeprecationWarning)
     # Determine the number of bands in the dataset
     if gdal_dataset:
         band_count = src_ds.RasterCount
@@ -269,7 +273,7 @@ def cumulative_dist_thresh(src_ds, gdal_dataset=True, ignore_nir=False, min_coun
 
 
 def load_histogram(src_ds, b, gdal_dataset):
-
+    warnings.warn("Module moved to histogram", DeprecationWarning)
     if gdal_dataset:
         # Read the band information from the gdal dataset
         band = src_ds.GetRasterBand(b)
