@@ -41,30 +41,34 @@ def parse_call():
 
     # System filepath that contains the directories or files for batch processing
     src_file = args.src_file
-    if not os.path.isfile(src_file):
-        raise IOError('Invalid input')
     dst_dir = args.dst_dir
     ae = args.adaptive
     wb = args.wbalance
 
     if src_file != "all":
+        if not os.path.isfile(src_file):
+            raise IOError('Invalid input')
         preprocess_image(src_file, dst_dir, adaptive_equalization=ae, white_balance=wb)
         quit()
 
-    base_dir = '/media/ncwright/sequoia/Lagrangian_Tracking/2020/imagery/'
+    #base_dir = '/media/ncwright/sequoia/Lagrangian_Tracking/2020/imagery/'
+    base_dir = 'G:\\Lagrangian_Tracking\\2020\\imagery_L1A\\mosaic\\imagery_clear'
 
-    acceptable_cf = ['CF1', 'CF2']
+    #acceptable_cf = ['CF1', 'CF2']
 
-    buoy_id = '300534060314060'
-    source_dir = os.path.join(base_dir, buoy_id)
+    #buoy_id = '300534060314060'
+    #source_dir = os.path.join(base_dir, buoy_id)
     # Build a list of all the good images and the associated metadata file
-    img_list = get_image_list(source_dir, acceptable_cf=acceptable_cf)
+    #img_list = get_image_list(source_dir, acceptable_cf=acceptable_cf)
+    img_list = os.listdir(base_dir)
 
-    for img, md in img_list:
+    for img in img_list:
+        if os.path.splitext(img)[1] != '.tif':
+            continue
         print(img)
-        dst_dir = os.path.split(img)[0]
-        print(dst_dir)
-        preprocess_image(img, dst_dir, adaptive_equalization=ae, white_balance=wb)
+        src_file = os.path.join(base_dir, img)
+        dst_dir = 'G:\\Lagrangian_Tracking\\2020\\imagery_L1A\\mosaic\\imagery_clear\\color_corrected'
+        preprocess_image(src_file, dst_dir, adaptive_equalization=ae, white_balance=wb)
         # quit()
 
 

@@ -20,9 +20,9 @@ def imsave_gdal(dst_filename, raster_data, fileformat="GTiff", dst_dtype=gdal.GD
         gdal creation options, by default ["TILED=YES", "COMPRESS=LZW"]
     """
     if raster_data.ndim == 3:
-        x_dim, y_dim, n_bands = np.shape(raster_data)
+        y_dim, x_dim, n_bands = np.shape(raster_data)
     else:
-        x_dim, y_dim = np.shape(raster_data)
+        y_dim, x_dim = np.shape(raster_data)
         n_bands = 1
 
     driver = gdal.GetDriverByName(fileformat)
